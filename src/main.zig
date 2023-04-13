@@ -3,31 +3,6 @@ const mem = std.mem;
 const testing = std.testing;
 const json = std.json;
 
-const initMsg: []const u8 =
-    \\ {
-    \\   "src": "c1",
-    \\   "dest": "n1",
-    \\   "body": {
-    \\     "type": "init",
-    \\     "msg_id": 1,
-    \\     "node_id": "n1",
-    \\     "node_ids": ["n1", "n2", "n3"]
-    \\   }
-    \\ }
-;
-
-const echoMsg: []const u8 =
-    \\ {
-    \\   "src": "c1",
-    \\   "dest": "n1",
-    \\   "body": {
-    \\     "type": "echo",
-    \\     "msg_id": 1,
-    \\     "echo": "Please echo 35"
-    \\   }
-    \\ }
-;
-
 const MsgParseError = error{Unknown};
 
 const MsgType = enum { Init, Echo };
@@ -38,6 +13,7 @@ const Node = struct {
 
 fn Msg(comptime T: type) type {
     return struct {
+        id: u8,
         src: []const u8,
         dest: []const u8,
         body: T,
@@ -103,6 +79,7 @@ fn parseEchoMessage(allocator: mem.Allocator, msg: []const u8) !Msg(Echo) {
 fn handleInitMessage(msg: Msg(Init), node: *Node) Msg(InitReply) {
     node.id = msg.body.node_id;
     return Msg(InitReply){
+        .id = msg.id,
         .src = node.id.?,
         .dest = msg.src,
         .body = InitReply{
@@ -114,6 +91,7 @@ fn handleInitMessage(msg: Msg(Init), node: *Node) Msg(InitReply) {
 
 fn handleEchoMessage(msg: Msg(Echo), node: *Node) Msg(EchoReply) {
     return Msg(EchoReply){
+        .id = msg.id,
         .src = node.id.?,
         .dest = msg.src,
         .body = EchoReply{
@@ -134,24 +112,34 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
     var node = Node{};
 
-    if (try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', 1000)) |msg| {
-        var msgType = try getMsgType(allocator, msg[0..]);
+    while (true) {
+        if (try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', 1000)) |msg| {
+            var msgType = try getMsgType(allocator, msg[0..]);
 
-        if (msgType == .Init) {
-            const msgData = try parseInitMessage(allocator, msg[0..]);
-            const replyMsg = handleInitMessage(msgData, &node);
-            const reply = try json.stringifyAlloc(allocator, replyMsg, .{});
-            try stdout.print("{s}\n", .{reply});
-        } else if (msgType == .Echo) {
-            const msgData = try parseEchoMessage(allocator, msg[0..]);
-            const replyMsg = handleEchoMessage(msgData, &node);
-            const reply = try json.stringifyAlloc(allocator, replyMsg, .{});
-            try stdout.print("{s}\n", .{reply});
-        } else {
-            std.debug.print("You fucked up\n", .{});
+            if (msgType == .Init) {
+                const msgData = try parseInitMessage(allocator, msg[0..]);
+                const replyMsg = handleInitMessage(msgData, &node);
+                const reply = try json.stringifyAlloc(allocator, replyMsg, .{});
+                try stdout.print("{s}\n", .{reply});
+            } else if (msgType == .Echo) {
+                const msgData = try parseEchoMessage(allocator, msg[0..]);
+                const replyMsg = handleEchoMessage(msgData, &node);
+                const reply = try json.stringifyAlloc(allocator, replyMsg, .{});
+                try stdout.print("{s}\n", .{reply});
+            } else {
+                std.debug.print("You fucked up\n", .{});
+            }
         }
     }
 }
+
+const initMsg: []const u8 =
+    \\ { "id": 0, "src": "c1", "dest": "n1", "body": { "type": "init", "msg_id": 1, "node_id": "n1", "node_ids": ["n1", "n2", "n3"] } }
+;
+
+const echoMsg: []const u8 =
+    \\ { "id": 1, "src": "c1", "dest": "n1", "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" } }
+;
 
 test "parses init message" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
